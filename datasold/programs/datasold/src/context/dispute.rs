@@ -1,14 +1,15 @@
 use anchor_lang::prelude::*;
-use crate::state::{Dataset, Dispute, GlobalConfig};
+use crate::state::{Dispute, Dataset, User};
+use crate::context::init::GlobalState;
 use crate::constants::MAX_REASON_LEN;
 use crate::error::CustomError;
+use anchor_lang::solana_program::clock::Clock;
 
 #[derive(Accounts)]
 #[instruction(reason: String)]
 pub struct FileDispute<'info> {
     /// Dataset must exist and be inactive (i.e. purchased or delisted)
     #[account(
-        has_one = owner,
         constraint = !dataset.is_active @ CustomError::ListingStillActive
     )]
     pub dataset: Account<'info, Dataset>,
@@ -16,29 +17,26 @@ pub struct FileDispute<'info> {
     /// New Dispute PDA
     #[account(
         init,
-        payer = challenger,
-        seeds = [
-            b"dispute",
-            dataset.key().as_ref(),
-            challenger.key().as_ref()
-        ],
-        bump,
-        space = 8                                 // discriminator
-             + 32                                // dataset
-             + 32                                // challenger
-             + 4 + MAX_REASON_LEN               // reason String
-             + 8                                 // created_at
-             + 1                                 // status
-             + 1                                 // result
-             + 32                                // resolver
-             + 8                                 // resolved_at
-             + 1                                 // bump
+        payer = authority,
+        space = 8 + 32 + 32 + 4 + reason.len() + 8 + 1 + 1 + 32 + 8 + 1,
+        seeds = [b"dispute", dataset.key().as_ref(), challenger.key().as_ref()],
+        bump
     )]
     pub dispute: Account<'info, Dispute>,
 
     /// Who is filing
+    #[account(
+        constraint = !challenger.is_banned @ CustomError::UnauthorizedResolver,
+        constraint = challenger.authority == authority.key() @ CustomError::UnauthorizedResolver
+    )]
+    pub challenger: Account<'info, User>,
+
+    /// Authority for the dispute
     #[account(mut)]
-    pub challenger: Signer<'info>,
+    pub authority: Signer<'info>,
+
+    /// Global state PDA
+    pub global_state: Account<'info, GlobalState>,
 
     /// System program for account creation
     pub system_program: Program<'info, System>,
@@ -51,10 +49,10 @@ pub fn file_dispute_handler(
     ctx: Context<FileDispute>,
     reason: String,
 ) -> Result<()> {
-    // Enforce max length
-    if reason.len() > MAX_REASON_LEN {
-        return err!(CustomError::ReasonTooLong);
-    }
+    require!(
+        reason.len() > 0 && reason.len() <= MAX_REASON_LEN,
+        CustomError::ReasonTooLong
+    );
 
     let dispute = &mut ctx.accounts.dispute;
     dispute.dataset = ctx.accounts.dataset.key();
@@ -65,31 +63,26 @@ pub fn file_dispute_handler(
     dispute.result = false;
     dispute.resolver = Pubkey::default();
     dispute.resolved_at = 0;
-    dispute.bump = *ctx.bumps.get("dispute").unwrap();
+    dispute.bump = ctx.bumps.dispute;
     Ok(())
 }
 
 #[derive(Accounts)]
-#[instruction(verdict: bool)]
 pub struct ResolveDispute<'info> {
     /// The dispute to resolve
     #[account(
         mut,
-        has_one = dataset,
         constraint = dispute.status == 0 @ CustomError::DisputeAlreadyResolved
     )]
     pub dispute: Account<'info, Dispute>,
 
     /// The dataset under dispute
-    #[account(mut)]
     pub dataset: Account<'info, Dataset>,
 
     /// The global config PDA (holds admin pubkey)
-    #[account(seeds = [b"config"], bump = config.bump)]
-    pub config: Account<'info, GlobalConfig>,
-
-    /// Only the admin can resolve
-    #[account(address = config.admin @ CustomError::UnauthorizedResolver)]
+    #[account(
+        constraint = resolver.key() == global_state.authority @ CustomError::UnauthorizedResolver
+    )]
     pub resolver: Signer<'info>,
 
     /// System program (for potential fund movements, if any)
@@ -97,6 +90,9 @@ pub struct ResolveDispute<'info> {
 
     /// Clock for resolution timestamp
     pub clock: Sysvar<'info, Clock>,
+
+    /// Global state PDA
+    pub global_state: Account<'info, GlobalState>,
 }
 
 pub fn resolve_dispute_handler(

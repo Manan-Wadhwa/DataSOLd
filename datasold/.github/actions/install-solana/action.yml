@@ -1,0 +1,40 @@
+name: 'Install Solana'
+description: 'Install Solana CLI tools'
+
+inputs:
+  solana_version:
+    description: 'Version of Solana to install'
+    required: true
+    default: '1.16.0'
+
+runs:
+  using: "composite"
+  steps:
+    - name: Cache Solana install
+      id: cache-solana
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cache/solana
+          ~/.local/share/solana
+        key: solana-${{ inputs.solana_version }}
+    
+    - name: Install Solana
+      if: steps.cache-solana.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        sh -c "$(curl -sSfL https://release.solana.com/v${{ inputs.solana_version }}/install)"
+        echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
+        
+    - name: Setup Path
+      shell: bash
+      run: |
+        echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
+        
+    - name: Install Anchor
+      shell: bash
+      run: |
+        npm i -g @coral-xyz/anchor@0.28.0
+        cargo install --git https://github.com/coral-xyz/anchor avm --tag v0.28.0 --locked
+        avm use 0.28.0
+        cargo install cargo-build-sbf 

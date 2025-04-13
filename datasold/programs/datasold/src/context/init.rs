@@ -1,48 +1,32 @@
 use anchor_lang::prelude::*;
-//Global config account
-#[account]
-pub struct GlobalCofig{
-    pub admin: Pubkey,
-    pub bump u8;
-
-    pub fee_percentage: u8,
-    pub max_auction_duration: u64,
-    pub system_activated: bool,
-
-}
-//Initialize the global config account
 
 #[derive(Accounts)]
-pub struct Initialize<'info>{
+pub struct Initialize<'info> {
     #[account(
-        init,
-        payer = payer,
-        seeds = [b"config"],
-        bump,
-        space = 8 + std::mem::size_of::<GlobalCofig>(),
+        init, 
+        payer = authority, 
+        space = 8 + 32 + 1, 
+        seeds = [b"global_state"], 
+        bump
     )]
-    pub config: Account<'info, GlobalCofig>,
-
+    pub global_state: Account<'info, GlobalState>,
+    
     #[account(mut)]
-    pub payer: Signer<'info>,
-
+    pub authority: Signer<'info>,
+    
     pub system_program: Program<'info, System>,
 }
 
-//Initialize the global config account
-pub fn initialize(ctx: Context<Initialize>, fee_percentage: u8, max_auction_duration: u64) -> Result<()> {
-    let config = &mut ctx.accounts.config;
-    config.admin = ctx.accounts.payer.key();
-    config.fee_percentage = fee_percentage;
-    config.max_auction_duration = 60 * 60 * 24 * 3;
-    config.system_activated = true;
-
-    Ok(())
+#[account]
+pub struct GlobalState {
+    pub authority: Pubkey,
+    pub bump: u8,
 }
-//code explanation:
-//1. Initialize the config account
-//2. Set the admin to the payer
-//3. Set the fee percentage
-//4. Set the max auction duration
-//5. Set the system activated to true
 
+pub fn initialize_handler(ctx: Context<Initialize>) -> Result<()> {
+    let global_state = &mut ctx.accounts.global_state;
+    global_state.authority = ctx.accounts.authority.key();
+    global_state.bump = ctx.bumps.global_state;
+    
+    Ok(())
+} 

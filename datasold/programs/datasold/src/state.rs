@@ -14,6 +14,7 @@ pub struct Dataset {
     pub bump: u8,
 }
 
+#[account]
 pub struct Dispute {
     /// The dataset under dispute
     pub dataset: Pubkey,
@@ -32,5 +33,19 @@ pub struct Dispute {
     /// When it was resolved
     pub resolved_at: i64,
     /// PDA bump
+    pub bump: u8,
+}
+
+#[account]
+pub struct User {
+    /// User wallet
+    pub authority: Pubkey,
+    /// User chosen name
+    pub username: String,
+    /// Reputation score
+    pub reputation: i32,
+    /// If user is banned
+    pub is_banned: bool,
+    /// For the PDA
     pub bump: u8,
 }
